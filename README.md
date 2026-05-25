@@ -25,13 +25,26 @@
 | 댓글 | 댓글 달린 블록 텍스트를 `<span class="notion-comment">`로 감싸 하이라이트, 호버 시 말풍선. 페이지 댓글은 하단 박스 |
 
 ### Front matter
-페이지 속성에서 추출한다 (별칭은 대소문자 무시):
-- **title**: title 타입 속성
-- **date**: date 타입 속성, 없으면 `created_time`
-- **categories**: `category/categories/카테고리/분류` (select·multi-select) → `["📂/값"]`
-- **tags**: `tags/tag/태그` (multi-select)
-- **subtitle**: `subtitle/부제/description/설명/요약` (rich text)
-- **banner.image**: 페이지 cover
+항상 같은 형식으로 고정 출력한다:
+```yaml
+---
+layout: post
+title: "..."
+subtitle: ""
+categories: ["📂/"]
+tags: ["..."]
+banner:
+  image: "..."
+  opacity: 0.5
+  background: "rgba(0, 0, 0, 0.7)"
+---
+```
+- **title**: title 타입 속성 (`--title`로 덮어쓰기 가능)
+- **date**: date 타입 속성, 없으면 `created_time` (파일명 prefix)
+- **subtitle**: 항상 빈 값 — 필요하면 직접 입력
+- **categories**: 항상 `["📂/"]` 플레이스홀더 — 직접 세팅
+- **tags**: `tags/tag/태그` multi-select에서 추출 (없으면 `[]`)
+- **banner.image**: 페이지 cover, 없으면 빈 값
 
 ## 댓글의 한계 (Notion API 제약)
 - **미해결(unresolved) 댓글만** 조회됨. resolve된 스레드는 못 가져옴.

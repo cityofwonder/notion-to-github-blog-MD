@@ -1,8 +1,8 @@
-"""Build Jekyll front matter and the `_posts` filename from Notion page properties.
+"""Build Jekyll front matter and the `_posts` filename from a Notion page.
 
-Property names are matched case-insensitively against a few common aliases
-(English + Korean). Adjust the alias sets below if your Notion DB uses other
-names.
+Front matter is emitted in a fixed shape so every post looks the same.
+`subtitle` and `categories` are left as placeholders for the author to fill;
+`tags` are read from a Notion multi-select; `banner.image` uses the cover.
 """
 
 import re
@@ -10,9 +10,7 @@ from slugify import slugify
 
 from . import richtext
 
-CATEGORY_ALIASES = {"category", "categories", "카테고리", "분류"}
 TAG_ALIASES = {"tags", "tag", "태그"}
-SUBTITLE_ALIASES = {"subtitle", "부제", "description", "설명", "요약"}
 
 
 def _find_prop(props: dict, aliases: set[str]):
@@ -72,32 +70,23 @@ def build(page: dict, slug_override: str | None = None,
     props = page.get("properties", {})
     title = title_override or _title(page)
     date = _date(page)
-
-    categories = [f"📂/{v}" for v in _select_values(_find_prop(props, CATEGORY_ALIASES))]
     tags = _select_values(_find_prop(props, TAG_ALIASES))
+    cover = _cover_url(page) or ""
 
-    subtitle_prop = _find_prop(props, SUBTITLE_ALIASES)
-    subtitle = ""
-    if subtitle_prop and subtitle_prop["type"] == "rich_text":
-        subtitle = richtext.plain(subtitle_prop["rich_text"]).strip()
-
-    cover = _cover_url(page)
-
-    lines = ["---", "layout: post", f'title: "{title}"']
-    if subtitle:
-        lines.append(f'subtitle: "{subtitle}"')
-    if categories:
-        lines.append(f"categories: {_yaml_list(categories)}")
-    if tags:
-        lines.append(f"tags: {_yaml_list(tags)}")
-    if cover:
-        lines += [
-            "banner:",
-            f'  image: "{cover}"',
-            "  opacity: 0.8",
-            '  background: "rgba(0, 0, 0, 0.7)"',
-        ]
-    lines.append("---")
+    # Fixed shape: subtitle/categories are placeholders the author fills in.
+    lines = [
+        "---",
+        "layout: post",
+        f'title: "{title}"',
+        'subtitle: ""',
+        'categories: ["📂/"]',
+        f"tags: {_yaml_list(tags)}",
+        "banner:",
+        f'  image: "{cover}"',
+        "  opacity: 0.5",
+        '  background: "rgba(0, 0, 0, 0.7)"',
+        "---",
+    ]
 
     if slug_override:
         slug = slugify(slug_override)
