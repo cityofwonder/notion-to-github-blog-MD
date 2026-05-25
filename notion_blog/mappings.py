@@ -27,7 +27,9 @@ HIGHLIGHT_CLASS = {
     "pink_background": "highlight-pink",
     "orange_background": "highlight-orange",
     "purple_background": "highlight-purple",
-    # red/gray/brown backgrounds have no blog equivalent -> skipped
+    "red_background": "highlight-red",
+    "gray_background": "highlight-gray",
+    "brown_background": "highlight-gray",  # no brown in blog -> nearest muted tone
 }
 
 # Notion callout color -> blog box class.

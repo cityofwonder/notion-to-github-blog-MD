@@ -11,9 +11,10 @@
 | Notion | 블로그 출력 |
 | --- | --- |
 | Callout | `<div class="box-note/success/warning/danger">` (색상 기반) |
+| Quote (인용) | `<div class="box-warning">` (노란 박스, 안의 텍스트 스타일 유지) |
 | Toggle | `<details><summary>…<div class="toggle-content" markdown="1">` |
 | 글자색 | `<span class="text-red/blue/green/orange/purple/pink/gray">` |
-| 배경색(형광펜) | `<span class="highlight-yellow/green/blue/pink/orange/purple">` |
+| 배경색(형광펜) | `<span class="highlight-yellow/green/blue/pink/orange/purple/red/gray">` |
 | Bold / Italic / Strike | `**` / `*` / `~~` |
 | Underline | `<span class="text-underline">` |
 | Inline / Block equation | `$…$` / `$$…$$` (MathJax via jekyll-spaceship) |
@@ -21,7 +22,7 @@
 | Code | 언어 지정 펜스 |
 | Image | `assets/images/<date>/`에 다운로드 후 `<figure>`(캡션 있을 때) |
 | Heading 1/2/3 | `##` / `###` / `####` (제목은 front matter) |
-| 댓글 | 블록 끝 각주 `[^c1]` + 하단 정의 / 페이지 댓글은 박스로 |
+| 댓글 | 댓글 달린 블록 텍스트를 `<span class="notion-comment">`로 감싸 하이라이트, 호버 시 말풍선. 페이지 댓글은 하단 박스 |
 
 ### Front matter
 페이지 속성에서 추출한다 (별칭은 대소문자 무시):

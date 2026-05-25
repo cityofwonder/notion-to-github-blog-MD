@@ -8,11 +8,11 @@ output matches the existing hand-written posts.
 from . import richtext
 from .mappings import HEADING_PREFIX, BOX_DEFAULT_EMOJI, callout_box_class
 
-# Blocks whose inline text can carry anchored comments.
+# Blocks where we inject inline `text` we can wrap with a comment highlight.
 _COMMENTABLE = {
     "paragraph", "heading_1", "heading_2", "heading_3",
     "bulleted_list_item", "numbered_list_item", "to_do",
-    "toggle", "callout", "quote", "code", "image",
+    "toggle", "callout", "quote",
 }
 _MEDIA = {"video", "embed", "bookmark", "link_preview"}
 _SKIP = {"table_of_contents", "breadcrumb", "child_page", "child_database"}
@@ -25,9 +25,7 @@ class Converter:
         self.web_image_base = web_image_base.rstrip("/")
         self.slug = slug
         self.with_comments = with_comments
-        self.footnotes: list[str] = []
         self._img_n = 0
-        self._cmt_n = 0
 
     # --- public --------------------------------------------------------
     def convert(self, page_id: str) -> str:
@@ -37,8 +35,6 @@ class Converter:
         appendix = self._page_comments(page_id)
         if appendix:
             body += "\n\n" + appendix
-        if self.footnotes:
-            body += "\n\n" + "\n".join(self.footnotes)
         return body.strip() + "\n"
 
     # --- block dispatch ------------------------------------------------
@@ -61,7 +57,7 @@ class Converter:
 
         text = richtext.render(data.get("rich_text", []))
         if t in _COMMENTABLE:
-            text += self._comment_markers(block["id"])
+            text = self._wrap_comment(block["id"], text)
 
         if t == "paragraph":
             return pad + text
@@ -141,12 +137,13 @@ class Converter:
         return f'<div class="{box}" markdown="1">\n{body}\n</div>'
 
     def _quote(self, block: dict, text: str) -> str:
-        lines = [f"> {text}"]
+        # Notion quotes render as the blog's yellow box (box-warning), which
+        # keeps inner text styling, instead of the default gray blockquote.
+        body = text
         children = self._children(block)
         if children:
-            inner = self._render_blocks(children, 0)
-            lines += [f"> {ln}" if ln else ">" for ln in inner.split("\n")]
-        return "\n".join(lines)
+            body += "\n\n" + self._render_blocks(children, 0)
+        return f'<div class="box-warning" markdown="1">\n{body}\n</div>'
 
     def _image(self, data: dict) -> str:
         src = data.get("external", {}).get("url") if data.get("type") == "external" \
@@ -207,17 +204,29 @@ class Converter:
         return url or ""
 
     # --- comments ------------------------------------------------------
-    def _comment_markers(self, block_id: str) -> str:
+    @staticmethod
+    def _esc(s: str) -> str:
+        s = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        return s.replace("\n", "<br>")
+
+    def _wrap_comment(self, block_id: str, text: str) -> str:
+        """Highlight commented text; the comment shows in a hover bubble.
+
+        Notion only anchors comments at block level, so the whole block's text
+        is the hover target (no in-text character range available).
+        """
         if not self.with_comments:
-            return ""
-        markers = ""
-        for c in self.source.get_comments(block_id):
-            self._cmt_n += 1
-            label = f"c{self._cmt_n}"
-            body = richtext.plain(c.get("rich_text", [])).strip()
-            self.footnotes.append(f"[^{label}]: 💬 {body}")
-            markers += f"[^{label}]"
-        return markers
+            return text
+        comments = self.source.get_comments(block_id)
+        if not comments:
+            return text
+        items = "".join(
+            f'<span class="comment-item">💬 '
+            f'{self._esc(richtext.plain(c.get("rich_text", [])).strip())}</span>'
+            for c in comments
+        )
+        bubble = f'<span class="comment-bubble">{items}</span>'
+        return f'<span class="notion-comment">{text}{bubble}</span>'
 
     def _page_comments(self, page_id: str) -> str:
         if not self.with_comments:
