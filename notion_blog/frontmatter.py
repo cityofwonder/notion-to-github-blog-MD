@@ -62,10 +62,15 @@ def _yaml_list(values: list[str]) -> str:
     return "[" + ", ".join(f'"{v}"' for v in values) + "]"
 
 
-def build(page: dict) -> tuple[str, dict]:
-    """Return (front_matter_text, meta) where meta carries date/slug/cover."""
+def build(page: dict, slug_override: str | None = None,
+          title_override: str | None = None) -> tuple[str, dict]:
+    """Return (front_matter_text, meta) where meta carries date/slug/cover.
+
+    slug_override lets you supply a casual English slug instead of the default
+    (which transliterates non-ASCII titles, e.g. Korean -> romaji).
+    """
     props = page.get("properties", {})
-    title = _title(page)
+    title = title_override or _title(page)
     date = _date(page)
 
     categories = [f"📂/{v}" for v in _select_values(_find_prop(props, CATEGORY_ALIASES))]
@@ -94,6 +99,9 @@ def build(page: dict) -> tuple[str, dict]:
         ]
     lines.append("---")
 
-    slug = slugify(title) or slugify(title, allow_unicode=True) or page["id"].replace("-", "")[:8]
+    if slug_override:
+        slug = slugify(slug_override)
+    else:
+        slug = slugify(title) or slugify(title, allow_unicode=True) or page["id"].replace("-", "")[:8]
     meta = {"date": date, "slug": slug, "title": title}
     return "\n".join(lines) + "\n", meta

@@ -44,7 +44,16 @@ pip install -r requirements.txt
 cp .env.example .env   # NOTION_TOKEN 채우기
 
 python notion_to_blog.py <노션-페이지-URL-또는-ID>
-# 옵션: --output DIR (기본 ./output), --no-comments
+# 옵션:
+#   --output DIR    출력 폴더 (기본 ./output)
+#   --no-comments   댓글 제외
+#   --slug TEXT     slug 직접 지정 (기본은 제목을 음역; 한글 제목은 로마자가 됨).
+#                   영어로 캐주얼하게 옮기고 싶을 때 사용
+#   --title TEXT    제목 직접 지정
+
+# 예: 한글이 섞인 제목을 영어 slug로
+python notion_to_blog.py <URL> --slug "single function report 0943 crs result analysis"
+# -> _posts/2026-05-25-single-function-report-0943-crs-result-analysis.md
 ```
 
 1. https://www.notion.so/my-integrations 에서 **internal integration** 생성

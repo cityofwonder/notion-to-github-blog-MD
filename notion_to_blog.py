@@ -38,13 +38,16 @@ def main() -> None:
     parser.add_argument("page", help="Notion page URL or id")
     parser.add_argument("--output", default="output", help="Output directory (default: output)")
     parser.add_argument("--no-comments", action="store_true", help="Skip Notion comments")
+    parser.add_argument("--slug", help="Override the post slug, e.g. a casual English "
+                                       "translation (default transliterates the title)")
+    parser.add_argument("--title", help="Override the post title")
     args = parser.parse_args()
 
     page_id = extract_page_id(args.page)
     source = NotionSource()
 
     page = source.get_page(page_id)
-    front, meta = frontmatter.build(page)
+    front, meta = frontmatter.build(page, slug_override=args.slug, title_override=args.title)
     date, slug = meta["date"], meta["slug"]
 
     asset_dir = os.path.join(args.output, "assets", "images", date)
