@@ -36,7 +36,10 @@ def main() -> None:
     load_dotenv()
     parser = argparse.ArgumentParser(description="Notion -> Jekyll post converter")
     parser.add_argument("page", help="Notion page URL or id")
-    parser.add_argument("--output", default="output", help="Output directory (default: output)")
+    parser.add_argument("--blog-dir", default="../cityofwonder.github.io",
+                        help="Blog repo root. Post -> <dir>/_posts, images -> "
+                             "<dir>/assets/images/<date> (default: ../cityofwonder.github.io). "
+                             "Pass a staging dir like ./output to review before publishing.")
     parser.add_argument("--no-comments", action="store_true", help="Skip Notion comments")
     parser.add_argument("--slug", help="Override the post slug, e.g. a casual English "
                                        "translation (default transliterates the title)")
@@ -50,7 +53,10 @@ def main() -> None:
     front, meta = frontmatter.build(page, slug_override=args.slug, title_override=args.title)
     date, slug = meta["date"], meta["slug"]
 
-    asset_dir = os.path.join(args.output, "assets", "images", date)
+    blog_dir = args.blog_dir
+    # Images are written into the blog repo; the markdown references the path
+    # the blog serves them from (/assets/images/<date>/...).
+    asset_dir = os.path.join(blog_dir, "assets", "images", date)
     web_image_base = f"/assets/images/{date}"
 
     converter = Converter(
@@ -62,7 +68,7 @@ def main() -> None:
     )
     body = converter.convert(page_id)
 
-    posts_dir = os.path.join(args.output, "_posts")
+    posts_dir = os.path.join(blog_dir, "_posts")
     os.makedirs(posts_dir, exist_ok=True)
     post_path = os.path.join(posts_dir, f"{date}-{slug}.md")
     with open(post_path, "w", encoding="utf-8") as f:
@@ -70,8 +76,8 @@ def main() -> None:
 
     print(f"✅ Wrote {post_path}")
     if os.path.isdir(asset_dir) and os.listdir(asset_dir):
-        print(f"🖼  Images in {asset_dir}")
-    print("→ Copy _posts/ and assets/ into the blog repo to publish.")
+        print(f"🖼  Images -> {asset_dir}")
+    print(f"→ Review, then commit in {blog_dir} (git add _posts assets).")
 
 
 if __name__ == "__main__":

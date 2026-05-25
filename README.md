@@ -45,22 +45,40 @@ cp .env.example .env   # NOTION_TOKEN 채우기
 
 python notion_to_blog.py <노션-페이지-URL-또는-ID>
 # 옵션:
-#   --output DIR    출력 폴더 (기본 ./output)
+#   --blog-dir DIR  블로그 레포 루트 (기본 ../cityofwonder.github.io).
+#                   글 -> <DIR>/_posts, 이미지 -> <DIR>/assets/images/<date>.
+#                   먼저 검토하려면 ./output 같은 스테이징 폴더를 넘기면 됨
 #   --no-comments   댓글 제외
 #   --slug TEXT     slug 직접 지정 (기본은 제목을 음역; 한글 제목은 로마자가 됨).
 #                   영어로 캐주얼하게 옮기고 싶을 때 사용
 #   --title TEXT    제목 직접 지정
 
-# 예: 한글이 섞인 제목을 영어 slug로
+# 예: 한글이 섞인 제목을 영어 slug로 (옆에 블로그 레포가 있다고 가정)
 python notion_to_blog.py <URL> --slug "single function report 0943 crs result analysis"
-# -> _posts/2026-05-25-single-function-report-0943-crs-result-analysis.md
+# -> ../cityofwonder.github.io/_posts/2026-05-25-single-function-report-0943-crs-result-analysis.md
+# -> ../cityofwonder.github.io/assets/images/2026-05-25/...
+```
+
+글과 이미지가 **블로그 레포에 바로** 쓰여서 별도 복사가 필요 없다.
+디렉토리 구조는 다음을 가정한다:
+```
+study/git/
+  notion-to-github-blog-md/     # 이 레포 (여기서 실행)
+  cityofwonder.github.io/       # 블로그 레포 (--blog-dir 기본값)
+```
+실행 후 블로그 레포에서 검토하고 커밋:
+```bash
+cd ../cityofwonder.github.io
+git add _posts assets
+git commit -m "Add post migrated from Notion"
+git push
 ```
 
 1. https://www.notion.so/my-integrations 에서 **internal integration** 생성
 2. 토큰을 `.env`의 `NOTION_TOKEN`에 저장
 3. 옮길 페이지에서 `•••` → **Connections** → 만든 integration 추가
-4. 스크립트 실행 → `output/_posts/<date>-<slug>.md` 와 `output/assets/images/<date>/` 생성
-5. 두 트리를 블로그 레포에 복사해서 게시
+4. 스크립트 실행 → 블로그 레포의 `_posts/<date>-<slug>.md` 와 `assets/images/<date>/`에 바로 생성
+5. 블로그 레포에서 검토 후 커밋·푸시
 
 ## 구조
 ```
