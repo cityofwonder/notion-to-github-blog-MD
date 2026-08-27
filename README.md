@@ -13,16 +13,17 @@
 | Callout | `<div class="box-note/success/warning/danger">` (색상 기반) |
 | Quote (인용) | `<div class="box-warning">` (노란 박스, 안의 텍스트 스타일 유지) |
 | Toggle | `<details><summary>…<div class="toggle-content" markdown="1">` |
-| 글자색 | `<span class="text-red/blue/green/orange/purple/pink/gray">` |
-| 배경색(형광펜) | `<span class="highlight-yellow/green/blue/pink/orange/purple/red/gray">` |
-| Bold / Italic / Strike | `**` / `*` / `~~` |
+| 글자색 | `<span class="text-red/blue/green/orange/purple/pink/gray/yellow/brown">` (노션 9색 전부) |
+| 배경색(형광펜) | `<span class="highlight-yellow/green/blue/pink/orange/purple/red/gray/brown">` (노션 9색 전부) |
+| Bold / Italic / Strike | `<strong>` / `<em>` / `<del>` (마크다운 `**`는 앞뒤 공백·별표에 깨져서 태그 사용) |
 | Underline | `<span class="text-underline">` |
 | Inline / Block equation | `$…$` / `$$…$$` (MathJax via jekyll-spaceship) |
 | Table | GFM 표 |
 | Code | 언어 지정 펜스 |
-| Image | `assets/images/<date>/`에 다운로드 후 `<figure>`(캡션 있을 때) |
+| Image | `assets/images/<date>/`에 다운로드 후 `<figure>`(캡션 있을 때). 캡션은 서식·링크 유지, `alt`는 평문 |
 | Heading 1/2/3 | `##` / `###` / `####` (제목은 front matter) |
-| 댓글 | 댓글 달린 블록 텍스트를 `<span class="notion-comment">`로 감싸 하이라이트, 호버 시 말풍선. 페이지 댓글은 하단 박스 |
+| 페이지/사용자 멘션 | `<span class="text-gray">` 라벨만 (워크스페이스 링크는 제거) |
+| 댓글 | 댓글이 달린 **정확한 구간**을 `<span class="notion-comment">`로 감싸 하이라이트, 호버 시 말풍선. 페이지 댓글은 하단 박스 |
 
 ### Front matter
 항상 같은 형식으로 고정 출력한다:
@@ -48,8 +49,34 @@ banner:
 
 ## 댓글의 한계 (Notion API 제약)
 - **미해결(unresolved) 댓글만** 조회됨. resolve된 스레드는 못 가져옴.
-- 위치는 **블록 단위**까지만. 블록 안의 정확한 글자 구간은 API가 노출하지 않음.
 - integration에 **Read comment** 권한이 켜져 있어야 함.
+- 공식 API는 댓글 위치를 **블록 단위**까지만 알려준다. 정확한 글자 구간은
+  노션 웹 클라이언트가 쓰는 내부 엔드포인트(`api/v3/loadPageChunk`)에서
+  가져오는데, **페이지에 공개 공유 링크가 켜져 있을 때만** 인증 없이 읽힌다.
+  - 공유가 꺼져 있거나 앵커가 서식 경계에 걸쳐 있으면 → 예전처럼 블록 전체를
+    하이라이트하는 방식으로 자동 폴백한다 (한 블록 안에서 전부 아니면 전무).
+  - 내부 엔드포인트는 비공식이라 언젠가 바뀔 수 있다. 바뀌면 폴백만 남고
+    변환은 계속 동작한다.
+
+## HTML 출력 규칙
+- 강조는 `**`가 아니라 `<strong>`/`<em>`/`<del>` 태그로 낸다. 노션 세그먼트는
+  `"굵은 텍스트 "` 처럼 끝에 공백이 붙거나 각주용 `*`가 섞이는 일이 잦은데,
+  마크다운 구분자 규칙상 그런 경우 강조가 조용히 무시된다.
+- 렌더된 텍스트를 담는 **블록** HTML에는 `markdown="1"`, **인라인** 전용
+  HTML에는 `markdown="span"`을 붙인다. 안 붙이면 `[링크](url)`이 그대로 나온다.
+  - `<div class="box-*">`, `<div class="toggle-content">` → `markdown="1"`
+  - `<summary>`, `<figcaption>` → `markdown="span"`
+  - `<figure>`에는 **붙이지 않는다.** 블로그가 `figure > img`로 이미지를
+    스타일링하는데, `markdown="1"`을 주면 kramdown이 `<img>`를 `<p>`로 감싸
+    그 선택자가 안 먹고 캡션 위에 문단 여백까지 생긴다.
+- 본문 텍스트(`plain_text`)는 HTML 이스케이프한다. `a < b`나 `<TAG>`가
+  태그로 먹히지 않게 하기 위함. 수식과 코드 스팬은 예외(각각 MathJax와
+  kramdown이 알아서 처리).
+
+## 링크 처리
+페이지/사용자 멘션과 `notion.so`·`app.notion.com` 링크는 **링크를 떼고 텍스트만**
+남긴다. 비공개 워크스페이스 URL이 공개 블로그에 그대로 나가는 걸 막기 위함이다.
+공개된 `*.notion.site` 링크는 그대로 유지한다.
 
 ## 사용법
 

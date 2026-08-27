@@ -1,12 +1,13 @@
 """Notion -> blog component mappings.
 
 These mirror the custom CSS classes documented in the blog's
-"마크다운 스타일링 정리" post (cityofwonder.github.io). Only colors the
-blog actually styles are mapped; anything else falls back to plain text.
+"마크다운 스타일링 정리" post (cityofwonder.github.io). The color maps cover
+Notion's full palette, so no color is silently dropped on conversion.
 """
 
 # Notion foreground text color -> blog `text-*` class.
-# Blog supports: red, blue, green, orange, purple, pink, gray.
+# Covers all 9 non-default Notion text colors; "default" is intentionally
+# absent (no span emitted).
 TEXT_COLOR_CLASS = {
     "red": "text-red",
     "blue": "text-blue",
@@ -15,11 +16,12 @@ TEXT_COLOR_CLASS = {
     "purple": "text-purple",
     "pink": "text-pink",
     "gray": "text-gray",
-    # notion "brown", "yellow", "default" have no blog equivalent -> skipped
+    "yellow": "text-yellow",
+    "brown": "text-brown",
 }
 
 # Notion background color -> blog `highlight-*` class.
-# Blog supports: yellow, green, blue, pink, orange, purple.
+# Covers all 9 Notion background colors.
 HIGHLIGHT_CLASS = {
     "yellow_background": "highlight-yellow",
     "green_background": "highlight-green",
@@ -29,7 +31,7 @@ HIGHLIGHT_CLASS = {
     "purple_background": "highlight-purple",
     "red_background": "highlight-red",
     "gray_background": "highlight-gray",
-    "brown_background": "highlight-gray",  # no brown in blog -> nearest muted tone
+    "brown_background": "highlight-brown",
 }
 
 # Notion callout color -> blog box class.

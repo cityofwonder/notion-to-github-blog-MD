@@ -5,6 +5,8 @@ text-*/highlight-* spans, GFM tables, MathJax math, <figure> images) so the
 output matches the existing hand-written posts.
 """
 
+import html
+
 from . import richtext
 from .mappings import HEADING_PREFIX, BOX_DEFAULT_EMOJI, callout_box_class
 
@@ -26,9 +28,12 @@ class Converter:
         self.slug = slug
         self.with_comments = with_comments
         self._img_n = 0
+        self._anchors: dict[str, str] = {}
 
     # --- public --------------------------------------------------------
     def convert(self, page_id: str) -> str:
+        if self.with_comments:
+            self._anchors = self.source.get_comment_anchors(page_id)
         blocks = self.source.get_block_children(page_id)
         body = self._render_blocks(blocks, indent=0)
 
@@ -114,10 +119,12 @@ class Converter:
         return line + "\n" + self._render_blocks(children, indent + 1)
 
     def _toggle(self, block: dict, summary: str) -> str:
+        # markdown="span" so links inside the summary still resolve; the
+        # body div keeps markdown="1" because it holds block-level content.
         inner = self._render_blocks(self._children(block), 0)
         return (
             "<details>\n"
-            f"<summary>{summary}</summary>\n"
+            f'<summary markdown="span">{summary}</summary>\n'
             '<div class="toggle-content" markdown="1">\n\n'
             f"{inner}\n\n"
             "</div>\n"
@@ -155,13 +162,23 @@ class Converter:
             src, self.asset_dir, f"{self.slug}-{self._img_n}"
         )
         web_path = f"{self.web_image_base}/{filename}"
-        caption = richtext.plain(data.get("caption", []))
+
+        # alt is an HTML attribute, so it takes plain text; the visible
+        # caption keeps its formatting (bold, colors, links).
+        #
+        # markdown="span" goes on the figcaption, NOT markdown="1" on the
+        # figure: the blog styles images with `figure > img`, and markdown="1"
+        # makes kramdown wrap the img in a <p>, which breaks that selector and
+        # adds a paragraph margin above the caption.
+        rich = data.get("caption", [])
+        alt = richtext.plain(rich).strip()
+        caption = richtext.render(rich).strip()
         if caption:
             return (
                 '<figure style="text-align: center;">\n'
-                f'    <img src="{web_path}" alt="{caption}">\n'
-                '    <figcaption style="font-size: 0.9em; color: gray; margin-top: 5px;">'
-                f"{caption}</figcaption>\n"
+                f'    <img src="{web_path}" alt="{html.escape(alt, quote=True)}">\n'
+                '    <figcaption style="font-size: 0.9em; color: gray; margin-top: 5px;"'
+                f' markdown="span">{caption}</figcaption>\n'
                 "</figure>"
             )
         return f"![]({web_path})"
@@ -209,24 +226,55 @@ class Converter:
         s = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         return s.replace("\n", "<br>")
 
-    def _wrap_comment(self, block_id: str, text: str) -> str:
-        """Highlight commented text; the comment shows in a hover bubble.
-
-        Notion only anchors comments at block level, so the whole block's text
-        is the hover target (no in-text character range available).
-        """
-        if not self.with_comments:
-            return text
-        comments = self.source.get_comments(block_id)
-        if not comments:
-            return text
+    def _comment_span(self, inner: str, comments: list[dict]) -> str:
         items = "".join(
             f'<span class="comment-item">💬 '
             f'{self._esc(richtext.plain(c.get("rich_text", [])).strip())}</span>'
             for c in comments
         )
         bubble = f'<span class="comment-bubble">{items}</span>'
-        return f'<span class="notion-comment">{text}{bubble}</span>'
+        return f'<span class="notion-comment">{inner}{bubble}</span>'
+
+    def _wrap_comment(self, block_id: str, text: str) -> str:
+        """Highlight commented text; the comment shows in a hover bubble.
+
+        Prefers the exact anchored range (from get_comment_anchors). Falls back
+        to highlighting the whole block when any of its comments can't be
+        placed -- an un-shared page, an anchor split across formatting runs, or
+        overlapping ranges. Nesting .notion-comment spans would break the hover
+        script, so it is all-or-nothing per block.
+        """
+        if not self.with_comments:
+            return text
+        comments = self.source.get_comments(block_id)
+        if not comments:
+            return text
+
+        by_discussion: dict[str, list[dict]] = {}
+        for c in comments:
+            by_discussion.setdefault(c.get("discussion_id"), []).append(c)
+
+        spans: list[tuple[int, int, list[dict]]] = []
+        for did, group in by_discussion.items():
+            anchor = self._anchors.get(did)
+            start = text.find(anchor) if anchor else -1
+            if start < 0:
+                spans = []
+                break
+            spans.append((start, start + len(anchor), group))
+
+        spans.sort()
+        disjoint = all(spans[i][1] <= spans[i + 1][0] for i in range(len(spans) - 1))
+        if spans and disjoint:
+            out, cursor = [], 0
+            for start, end, group in spans:
+                out.append(text[cursor:start])
+                out.append(self._comment_span(text[start:end], group))
+                cursor = end
+            out.append(text[cursor:])
+            return "".join(out)
+
+        return self._comment_span(text, comments)
 
     def _page_comments(self, page_id: str) -> str:
         if not self.with_comments:

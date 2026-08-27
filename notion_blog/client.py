@@ -8,6 +8,8 @@ from urllib.parse import urlparse
 import requests
 from notion_client import Client
 
+_INTERNAL_API = "https://www.notion.so/api/v3"
+
 
 class NotionSource:
     def __init__(self, token: str | None = None):
@@ -39,11 +41,54 @@ class NotionSource:
         return blocks
 
     # --- comments ------------------------------------------------------
+    def get_comment_anchors(self, page_id: str) -> dict[str, str]:
+        """Map discussion_id -> the exact text the comment is anchored to.
+
+        The public API gives comments only at block granularity, so a comment
+        on two words would highlight the whole paragraph. Notion's own web
+        client gets the character range from an internal endpoint, which
+        serves any page that has a public share link -- no auth involved.
+
+        Returns {} whenever that is unavailable (page not shared publicly,
+        endpoint changed, network down); the caller then falls back to
+        block-level highlighting.
+        """
+        try:
+            resp = requests.post(
+                f"{_INTERNAL_API}/loadPageChunk",
+                json={
+                    "pageId": page_id,
+                    "limit": 300,
+                    "cursor": {"stack": []},
+                    "chunkNumber": 0,
+                    "verticalColumns": False,
+                },
+                timeout=20,
+            )
+            resp.raise_for_status()
+            discussions = resp.json()["recordMap"].get("discussion", {})
+        except (requests.RequestException, ValueError, KeyError):
+            return {}
+
+        anchors: dict[str, str] = {}
+        for did, record in discussions.items():
+            value = record.get("value", record)
+            value = value.get("value", value)
+            context = value.get("context")
+            if not context:
+                continue  # page-level comment: no in-text anchor
+            text = "".join(
+                seg[0] for seg in context if isinstance(seg, list) and seg
+            ).strip()
+            if text:
+                anchors[did] = text
+        return anchors
+
     def get_comments(self, block_id: str) -> list[dict]:
         """Return unresolved comments anchored to a page or block.
 
         Notion's API only exposes unresolved comments and only at block-level
-        granularity (no character offset within the block).
+        granularity; pair this with get_comment_anchors() for the exact range.
         """
         comments: list[dict] = []
         cursor = None
