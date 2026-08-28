@@ -45,32 +45,42 @@ def _mention(seg: dict, text: str, href: str | None):
     return text, href, []
 
 
-def _classes_for_color(color: str) -> list[str]:
-    if not color or color == "default":
-        return []
-    if color.endswith("_background"):
-        cls = HIGHLIGHT_CLASS.get(color)
-    else:
-        cls = TEXT_COLOR_CLASS.get(color)
-    return [cls] if cls else []
+def _classes_for_colors(colors: list[str]) -> list[str]:
+    """Notion colour names -> blog classes.
+
+    A span can carry both a text colour and a highlight; `annotations.color`
+    only reports one, so the caller may pass both (see
+    NotionSource.get_color_overrides).
+    """
+    out: list[str] = []
+    for color in colors:
+        if not color or color == "default":
+            continue
+        if color.endswith("_background"):
+            cls = HIGHLIGHT_CLASS.get(color)
+        else:
+            cls = TEXT_COLOR_CLASS.get(color)
+        if cls and cls not in out:
+            out.append(cls)
+    return out
 
 
-def _render_segment(seg: dict) -> str:
+def _render_segment(seg: dict, colors: list[str] | None = None) -> str:
     seg_type = seg.get("type")
     annotations = seg.get("annotations", {})
-
-    if seg_type == "equation":
-        # Inline math: rendered by jekyll-spaceship / MathJax.
-        expr = seg.get("equation", {}).get("expression", "")
-        text = f"${expr}$"
-        href = seg.get("href")
-        if href and not _is_workspace_url(href):
-            return f"[{text}]({href})"
-        return text
-
-    text = seg.get("plain_text", "")
+    palette = list(colors) if colors else [annotations.get("color", "default")]
     href = seg.get("href")
     extra_classes: list[str] = []
+
+    if seg_type == "equation":
+        # Inline math, rendered by jekyll-spaceship / MathJax. Emphasis is not
+        # applied -- the processor scans the raw `$...$` -- but the colour span
+        # wraps it fine, so a highlighted formula keeps its highlight.
+        expr = seg.get("equation", {}).get("expression", "")
+        text = f"${expr}$"
+        return _wrap(text, href, palette, extra_classes, annotations)
+
+    text = seg.get("plain_text", "")
     if seg_type == "mention":
         text, href, extra_classes = _mention(seg, text, href)
     if not text:
@@ -97,10 +107,15 @@ def _render_segment(seg: dict) -> str:
         if annotations.get("strikethrough"):
             text = f"<del>{text}</del>"
 
+    return _wrap(text, href, palette, extra_classes, annotations)
+
+
+def _wrap(text: str, href, palette: list[str], extra_classes: list[str],
+          annotations: dict) -> str:
     if href and not _is_workspace_url(href):
         text = f"[{text}]({href})"
 
-    classes = _classes_for_color(annotations.get("color", "default"))
+    classes = _classes_for_colors(palette)
     for cls in extra_classes:
         if cls not in classes:
             classes.append(cls)
@@ -108,13 +123,20 @@ def _render_segment(seg: dict) -> str:
         classes.append("text-underline")
     if classes:
         text = f'<span class="{" ".join(classes)}">{text}</span>'
-
     return text
 
 
-def render(rich_text: list[dict]) -> str:
-    """Render a Notion rich_text array to an inline markdown string."""
-    return "".join(_render_segment(seg) for seg in (rich_text or []))
+def render(rich_text: list[dict], colors: list[list[str]] | None = None) -> str:
+    """Render a Notion rich_text array to an inline markdown string.
+
+    `colors` is an optional per-segment override, aligned by index, carrying
+    every colour Notion stored for that span (see get_color_overrides).
+    """
+    parts = []
+    for i, seg in enumerate(rich_text or []):
+        override = colors[i] if colors and i < len(colors) else None
+        parts.append(_render_segment(seg, override))
+    return "".join(parts)
 
 
 def plain(rich_text: list[dict]) -> str:

@@ -6,9 +6,11 @@ output matches the existing hand-written posts.
 """
 
 import html
+from urllib.parse import urlparse
 
 from . import richtext
-from .mappings import HEADING_PREFIX, BOX_DEFAULT_EMOJI, callout_box_class
+from .mappings import (HEADING_PREFIX, BOX_DEFAULT_EMOJI, callout_box_class,
+                       toggle_color_class)
 
 # Blocks where we inject inline `text` we can wrap with a comment highlight.
 _COMMENTABLE = {
@@ -16,7 +18,13 @@ _COMMENTABLE = {
     "bulleted_list_item", "numbered_list_item", "to_do",
     "toggle", "callout", "quote",
 }
+_LIST_ITEMS = {"bulleted_list_item", "numbered_list_item", "to_do"}
 _MEDIA = {"video", "embed", "bookmark", "link_preview"}
+
+# Share pages jekyll-spaceship cannot auto-embed (it knows youtube, vimeo,
+# dailymotion, spotify and soundcloud only). For these the page is fetched and
+# its Open Graph metadata gives the direct media URL.
+_OG_EMBED_HOSTS = ("tenor.com",)
 _SKIP = {"table_of_contents", "breadcrumb", "child_page", "child_database"}
 
 
@@ -27,11 +35,12 @@ class Converter:
         self.web_image_base = web_image_base.rstrip("/")
         self.slug = slug
         self.with_comments = with_comments
-        self._img_n = 0
         self._anchors: dict[str, str] = {}
+        self._colors: dict[str, list[list[str]]] = {}
 
     # --- public --------------------------------------------------------
     def convert(self, page_id: str) -> str:
+        self._colors = self.source.get_color_overrides(page_id)
         if self.with_comments:
             self._anchors = self.source.get_comment_anchors(page_id)
         blocks = self.source.get_block_children(page_id)
@@ -44,8 +53,25 @@ class Converter:
 
     # --- block dispatch ------------------------------------------------
     def _render_blocks(self, blocks: list[dict], indent: int) -> str:
-        parts = [self._render_block(b, indent) for b in blocks]
-        return "\n\n".join(p for p in parts if p.strip())
+        """Join rendered blocks, keeping consecutive list items tight.
+
+        A blank line between list items makes kramdown emit a "loose" list,
+        wrapping every item in a <p> and adding paragraph margins -- which
+        reads far airier than the hand-written posts. One newline keeps the
+        list tight; everything else still gets a blank line.
+        """
+        out: list[str] = []
+        prev_is_list = False
+        for block in blocks:
+            text = self._render_block(block, indent)
+            if not text.strip():
+                continue
+            is_list = block.get("type") in _LIST_ITEMS
+            if out:
+                out.append("\n" if (is_list and prev_is_list) else "\n\n")
+            out.append(text)
+            prev_is_list = is_list
+        return "".join(out)
 
     def _children(self, block: dict) -> list[dict]:
         if not block.get("has_children"):
@@ -60,15 +86,17 @@ class Converter:
         if t in _SKIP:
             return ""
 
-        text = richtext.render(data.get("rich_text", []))
+        text = richtext.render(data.get("rich_text", []),
+                               self._colors.get(block["id"]))
         if t in _COMMENTABLE:
             text = self._wrap_comment(block["id"], text)
 
         if t == "paragraph":
-            return pad + text
+            return self._with_children(block, pad + text, indent)
 
         if t in HEADING_PREFIX:
-            return f"{HEADING_PREFIX[t]} {text}"
+            return self._with_children(
+                block, f"{HEADING_PREFIX[t]} {text}", indent)
 
         if t == "bulleted_list_item":
             return self._list_item(block, indent, f"{pad}- {text}")
@@ -97,7 +125,7 @@ class Converter:
             return "---"
 
         if t == "image":
-            return self._image(data)
+            return self._image(block, data)
 
         if t == "table":
             return self._table(block, data)
@@ -111,6 +139,18 @@ class Converter:
         # Unhandled type: surface its plain text rather than dropping silently.
         return pad + text
 
+    def _with_children(self, block: dict, rendered: str, indent: int) -> str:
+        """Append blocks nested under a paragraph or heading.
+
+        Notion allows nesting there, and dropping the children silently lost
+        whole subtrees. They are emitted as siblings rather than indented:
+        indenting a non-list block in markdown turns it into a code block.
+        """
+        children = self._children(block)
+        if not children:
+            return rendered
+        return rendered + "\n\n" + self._render_blocks(children, indent)
+
     # --- composite blocks ---------------------------------------------
     def _list_item(self, block: dict, indent: int, line: str) -> str:
         children = self._children(block)
@@ -122,8 +162,15 @@ class Converter:
         # markdown="span" so links inside the summary still resolve; the
         # body div keeps markdown="1" because it holds block-level content.
         inner = self._render_blocks(self._children(block), 0)
+        # An untitled Notion toggle would render as a bare disclosure
+        # triangle with no clickable label.
+        summary = summary.strip() or "더보기"
+        # A Notion toggle can carry a block colour; the blog paints it on the
+        # open panel only, so a closed toggle stays flush with the page.
+        color_cls = toggle_color_class((block.get("toggle") or {}).get("color"))
+        opening = f'<details class="{color_cls}">' if color_cls else "<details>"
         return (
-            "<details>\n"
+            opening + "\n"
             f'<summary markdown="span">{summary}</summary>\n'
             '<div class="toggle-content" markdown="1">\n\n'
             f"{inner}\n\n"
@@ -152,14 +199,18 @@ class Converter:
             body += "\n\n" + self._render_blocks(children, 0)
         return f'<div class="box-warning" markdown="1">\n{body}\n</div>'
 
-    def _image(self, data: dict) -> str:
+    def _image(self, block: dict, data: dict) -> str:
         src = data.get("external", {}).get("url") if data.get("type") == "external" \
             else data.get("file", {}).get("url")
         if not src:
             return ""
-        self._img_n += 1
+        # Name the file after the image BLOCK id, not its position. A counter
+        # renames every file whenever an image is added, removed or reordered
+        # in Notion, so a re-run silently overwrites the wrong asset and
+        # leaves orphans behind. Block ids survive all three.
+        stem = block.get("id", "").replace("-", "")[:8] or "img"
         filename = self.source.download_image(
-            src, self.asset_dir, f"{self.slug}-{self._img_n}"
+            src, self.asset_dir, f"{self.slug}-{stem}"
         )
         web_path = f"{self.web_image_base}/{filename}"
 
@@ -170,18 +221,25 @@ class Converter:
         # figure: the blog styles images with `figure > img`, and markdown="1"
         # makes kramdown wrap the img in a <p>, which breaks that selector and
         # adds a paragraph margin above the caption.
-        rich = data.get("caption", [])
-        alt = richtext.plain(rich).strip()
-        caption = richtext.render(rich).strip()
-        if caption:
-            return (
-                '<figure style="text-align: center;">\n'
-                f'    <img src="{web_path}" alt="{html.escape(alt, quote=True)}">\n'
-                '    <figcaption style="font-size: 0.9em; color: gray; margin-top: 5px;"'
-                f' markdown="span">{caption}</figcaption>\n'
-                "</figure>"
-            )
-        return f"![]({web_path})"
+        return self._figure(web_path, data.get("caption", []))
+
+    def _figure(self, src: str, rich_caption: list) -> str:
+        """<figure> when there is a caption, a plain image otherwise.
+
+        Shared by images and by embeds resolved to a direct media URL, so a
+        captioned GIF keeps its caption just like a captioned screenshot.
+        """
+        alt = richtext.plain(rich_caption).strip()
+        caption = richtext.render(rich_caption).strip()
+        if not caption:
+            return f"![]({src})"
+        return (
+            '<figure style="text-align: center;">\n'
+            f'    <img src="{src}" alt="{html.escape(alt, quote=True)}">\n'
+            '    <figcaption style="font-size: 0.9em; color: gray; margin-top: 5px;"'
+            f' markdown="span">{caption}</figcaption>\n'
+            "</figure>"
+        )
 
     def _table(self, block: dict, data: dict) -> str:
         rows = self._children(block)
@@ -217,8 +275,19 @@ class Converter:
         else:  # video
             url = data.get("external", {}).get("url") if data.get("type") == "external" \
                 else data.get("file", {}).get("url", "")
+        if url and self._og_embeddable(url):
+            direct = self.source.resolve_og_media(url)
+            if direct:
+                # Link, not download: the same rule the banner follows.
+                return self._figure(direct, data.get("caption", []))
+
         # A bare URL on its own line lets jekyll-spaceship auto-embed media.
         return url or ""
+
+    @staticmethod
+    def _og_embeddable(url: str) -> bool:
+        host = (urlparse(url).hostname or "").lower()
+        return any(host == h or host.endswith("." + h) for h in _OG_EMBED_HOSTS)
 
     # --- comments ------------------------------------------------------
     @staticmethod

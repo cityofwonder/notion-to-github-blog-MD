@@ -71,3 +71,13 @@ def callout_box_class(color: str) -> str:
     """Map a Notion callout color (with or without `_background`) to a box class."""
     base = color.replace("_background", "")
     return CALLOUT_BOX.get(base, "box-note")
+
+
+def toggle_color_class(color: str) -> str | None:
+    """Notion block colour -> `toggle-*` class for an open <details> panel.
+
+    Only background colours produce a panel; a plain text colour on the block
+    is left alone (the blog styles the toggle chrome, not its text).
+    """
+    cls = HIGHLIGHT_CLASS.get(color or "")
+    return cls.replace("highlight-", "toggle-") if cls else None

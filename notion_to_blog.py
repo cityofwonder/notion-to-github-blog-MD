@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """Convert a Notion page into a Jekyll post for cityofwonder.github.io.
 
+Front matter comes from the page's database properties (filename, subtitle,
+categories, tags, banner), so a fully-filled page needs no flags.
+
 Usage:
-    python notion_to_blog.py <notion-page-url-or-id> [--output DIR] [--no-comments]
+    python notion_to_blog.py <notion-page-url-or-id> [--blog-dir DIR] [--no-comments]
 
 Output layout (under --output, default ./output):
     _posts/<date>-<slug>.md
@@ -50,7 +53,7 @@ def main() -> None:
     source = NotionSource()
 
     page = source.get_page(page_id)
-    front, meta = frontmatter.build(page, slug_override=args.slug, title_override=args.title)
+    meta = frontmatter.collect(page, slug_override=args.slug, title_override=args.title)
     date, slug = meta["date"], meta["slug"]
 
     blog_dir = args.blog_dir
@@ -58,6 +61,14 @@ def main() -> None:
     # the blog serves them from (/assets/images/<date>/...).
     asset_dir = os.path.join(blog_dir, "assets", "images", date)
     web_image_base = f"/assets/images/{date}"
+
+    # A Notion-hosted banner is behind a URL that expires within the hour, so
+    # it has to land in the repo. An external one stays a link.
+    banner_image = meta["banner_url"] or ""
+    if banner_image and meta["banner_hosted"]:
+        banner_file = source.download_image(banner_image, asset_dir, f"{slug}-banner")
+        banner_image = f"{web_image_base}/{banner_file}"
+    front = frontmatter.render(meta, banner_image)
 
     converter = Converter(
         source=source,
@@ -74,7 +85,8 @@ def main() -> None:
     with open(post_path, "w", encoding="utf-8") as f:
         f.write(front + "\n" + body)
 
-    print(f"✅ Wrote {post_path}")
+    source_note = "filename 속성" if meta["from_filename_prop"] else "created_time + 제목"
+    print(f"✅ Wrote {post_path}  ({source_note} 기준)")
     if os.path.isdir(asset_dir) and os.listdir(asset_dir):
         print(f"🖼  Images -> {asset_dir}")
     print(f"→ Review, then commit in {blog_dir} (git add _posts assets).")
