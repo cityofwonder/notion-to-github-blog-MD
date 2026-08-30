@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 
 from . import richtext
 from .mappings import (HEADING_PREFIX, BOX_DEFAULT_EMOJI, callout_box_class,
-                       toggle_color_class)
+                       toggle_color_class, block_color_classes)
 
 # Blocks where we inject inline `text` we can wrap with a comment highlight.
 _COMMENTABLE = {
@@ -37,6 +37,7 @@ class Converter:
         self.with_comments = with_comments
         self._anchors: dict[str, str] = {}
         self._colors: dict[str, list[list[str]]] = {}
+        self._asset_stems: set[str] = set()
 
     # --- public --------------------------------------------------------
     def convert(self, page_id: str) -> str:
@@ -191,24 +192,28 @@ class Converter:
         return f'<div class="{box}" markdown="1">\n{body}\n</div>'
 
     def _quote(self, block: dict, text: str) -> str:
-        # Notion quotes render as the blog's yellow box (box-warning), which
-        # keeps inner text styling, instead of the default gray blockquote.
+        """A real <blockquote>, carrying the Notion block colour.
+
+        Notion draws an uncoloured quote as a bare left bar and only fills the
+        background when the block has a colour, so .notion-quote does the
+        same rather than forcing every quote into one fixed box.
+        """
+        classes = ["notion-quote"]
+        classes += block_color_classes((block.get("quote") or {}).get("color"),
+                                       "quote-")
         body = text
         children = self._children(block)
         if children:
             body += "\n\n" + self._render_blocks(children, 0)
-        return f'<div class="box-warning" markdown="1">\n{body}\n</div>'
+        return (f'<blockquote class="{" ".join(classes)}" markdown="1">\n'
+                f'{body}\n</blockquote>')
 
     def _image(self, block: dict, data: dict) -> str:
         src = data.get("external", {}).get("url") if data.get("type") == "external" \
             else data.get("file", {}).get("url")
         if not src:
             return ""
-        # Name the file after the image BLOCK id, not its position. A counter
-        # renames every file whenever an image is added, removed or reordered
-        # in Notion, so a re-run silently overwrites the wrong asset and
-        # leaves orphans behind. Block ids survive all three.
-        stem = block.get("id", "").replace("-", "")[:8] or "img"
+        stem = self._asset_stem(block.get("id", ""))
         filename = self.source.download_image(
             src, self.asset_dir, f"{self.slug}-{stem}"
         )
@@ -222,6 +227,26 @@ class Converter:
         # makes kramdown wrap the img in a <p>, which breaks that selector and
         # adds a paragraph margin above the caption.
         return self._figure(web_path, data.get("caption", []))
+
+    def _asset_stem(self, block_id: str) -> str:
+        """Stable, unique filename stem for a block's downloaded asset.
+
+        Named after the block id rather than the image's position, so adding,
+        removing or reordering images in Notion does not rename every file on
+        the next run.
+
+        Uses the TRAILING hex digits: Notion block ids are time-ordered, so
+        every block created on the same page shares the same leading bytes --
+        `[:8]` handed two images the same name and the second overwrote the
+        first. The counter suffix is a backstop in case they ever collide.
+        """
+        stem = block_id.replace("-", "")[-8:] or "img"
+        base, n = stem, 2
+        while stem in self._asset_stems:
+            stem = f"{base}-{n}"
+            n += 1
+        self._asset_stems.add(stem)
+        return stem
 
     def _figure(self, src: str, rich_caption: list) -> str:
         """<figure> when there is a caption, a plain image otherwise.

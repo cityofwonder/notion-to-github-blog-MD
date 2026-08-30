@@ -11,7 +11,7 @@
 | Notion | 블로그 출력 |
 | --- | --- |
 | Callout | `<div class="box-note/success/warning/danger">` (색상 기반) |
-| Quote (인용) | `<div class="box-warning">` (노란 박스, 안의 텍스트 스타일 유지) |
+| Quote (인용) | `<blockquote class="notion-quote">`. 노션 블록에 배경색이 있으면 `quote-<색>`, 글자색이면 `text-<색>` 을 덧붙인다. 색이 없으면 노션처럼 왼쪽 바만 |
 | Toggle | `<details><summary markdown="span">…<div class="toggle-content" markdown="1">`. 제목 없는 토글은 `더보기`. 노션 블록 배경색이 있으면 `class="toggle-<색>"` 을 달아 **열렸을 때만** 그 색 패널이 뜬다 |
 | 글자색 | `<span class="text-red/blue/green/orange/purple/pink/gray/yellow/brown">` (노션 9색 전부) |
 | 배경색(형광펜) | `<span class="highlight-yellow/green/blue/pink/orange/purple/red/gray/brown">` (노션 9색 전부) |
@@ -159,9 +159,42 @@ git push
 4. 스크립트 실행 → 블로그 레포의 `_posts/<date>-<slug>.md` 와 `assets/images/<date>/`에 바로 생성
 5. 블로그 레포에서 검토 후 커밋·푸시
 
+## 글 되돌리기 (cleanup_post.py)
+
+옮긴 글을 무르거나 파일명을 바꿔 다시 뽑을 때, md 만 지우면 이미지가 남고
+폴더째 지우면 다른 글이 쓰던 배너까지 날아간다. 이 스크립트는 **그 글이
+참조하는 에셋이 블로그의 다른 파일에서도 쓰이는지 확인한 뒤**, 아무도 안 쓰는
+것만 md 와 함께 지운다.
+
+```bash
+python cleanup_post.py 2026-06-04-TIL-MCP.md            # 확인만 (기본)
+python cleanup_post.py 2026-06-04-TIL-MCP.md --yes      # 실제 삭제
+python cleanup_post.py <파일명> --blog-dir ./output      # 스테이징 폴더 대상
+```
+
+```
+글      : _posts/2026-06-04-TIL-MCP.md
+참조 에셋: 3개
+  [삭제] /assets/images/2026-06-04/TIL-MCP-001bd65d.png
+  [삭제] /assets/images/2026-06-04/TIL-MCP-e8b15a7c.png
+  [보존] /assets/images/2026-06-04/TIL-MCP-banner.png
+           ← _posts/2026-06-05-other-post.md 에서도 참조
+```
+
+- **드라이런이 기본.** `--yes` 없이는 아무것도 건드리지 않는다.
+- 참조 탐색 범위는 `_site` / `.jekyll-cache` / `.git` 을 제외한 블로그 전체
+  (md, html, yml, scss, js, json …). front matter 의 `banner.image`,
+  마크다운 `![]()`, HTML `src=""` 모두 잡는다. 공백 있는 파일명도 처리한다.
+- 삭제는 추적 여부에 따라 `git rm -f` 또는 `git clean -f` 를 쓰고, 실행한
+  명령을 그대로 출력한다.
+- 같은 폴더에 있지만 그 글이 참조하지 않는 파일은 **건드리지 않고** 목록만
+  보여준다 (다른 글 것이거나 예전 변환의 잔재일 수 있으므로).
+- 비게 된 `assets/images/<date>/` 폴더는 같이 정리한다.
+
 ## 구조
 ```
 notion_to_blog.py        # CLI
+cleanup_post.py          # 글 + 전용 에셋 삭제 (참조 확인 후)
 notion_blog/
   client.py              # Notion API 래퍼 (블록/속성/댓글/이미지)
   converter.py           # 블록 트리 → 마크다운 본문

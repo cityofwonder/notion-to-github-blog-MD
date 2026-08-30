@@ -73,11 +73,28 @@ def callout_box_class(color: str) -> str:
     return CALLOUT_BOX.get(base, "box-note")
 
 
+def _background_class(color: str, prefix: str) -> str | None:
+    cls = HIGHLIGHT_CLASS.get(color or "")
+    return cls.replace("highlight-", prefix) if cls else None
+
+
 def toggle_color_class(color: str) -> str | None:
     """Notion block colour -> `toggle-*` class for an open <details> panel.
 
     Only background colours produce a panel; a plain text colour on the block
     is left alone (the blog styles the toggle chrome, not its text).
     """
-    cls = HIGHLIGHT_CLASS.get(color or "")
-    return cls.replace("highlight-", "toggle-") if cls else None
+    return _background_class(color, "toggle-")
+
+
+def block_color_classes(color: str, prefix: str) -> list[str]:
+    """Classes for a block's Notion colour.
+
+    A block colour is either a background (`blue_background`) or a text colour
+    (`blue`); return whichever applies, so neither is silently dropped.
+    """
+    background = _background_class(color, prefix)
+    if background:
+        return [background]
+    text = TEXT_COLOR_CLASS.get(color or "")
+    return [text] if text else []
