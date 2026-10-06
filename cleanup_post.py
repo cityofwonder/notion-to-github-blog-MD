@@ -24,6 +24,13 @@ import subprocess
 import sys
 
 # Directories that never hold a real reference (build output, vendored gems).
+# The sibling blog repo, resolved against THIS FILE rather than the shell's
+# working directory -- running the script from one level up used to point at a
+# path that does not exist.
+DEFAULT_BLOG_DIR = os.path.normpath(os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "cityofwonder.github.io"))
+
+
 SKIP_DIRS = {".git", "_site", ".jekyll-cache", "node_modules", ".bundle",
              "vendor", ".venv", "venv", "__pycache__"}
 
@@ -120,8 +127,8 @@ def main():
     parser = argparse.ArgumentParser(
         description="Delete a post and the assets only it references")
     parser.add_argument("post", help="_posts 안의 md 파일명 (경로도 가능)")
-    parser.add_argument("--blog-dir", default="../cityofwonder.github.io",
-                        help="블로그 레포 루트 (기본: ../cityofwonder.github.io)")
+    parser.add_argument("--blog-dir", default=DEFAULT_BLOG_DIR,
+                        help="블로그 레포 루트 (기본: 이 스크립트 옆의 cityofwonder.github.io)")
     parser.add_argument("--yes", action="store_true",
                         help="실제로 삭제 (없으면 확인만 하고 종료)")
     args = parser.parse_args()

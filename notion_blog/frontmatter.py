@@ -24,6 +24,8 @@ FILENAME_ALIASES = {"filename", "file name", "file-name", "파일명", "파일 �
 SUBTITLE_ALIASES = {"subtitle", "sub title", "부제", "부제목"}
 CATEGORY_ALIASES = {"categories", "category", "카테고리"}
 BANNER_ALIASES = {"banner", "cover", "배너"}
+STATUS_ALIASES = {"상태", "status", "state"}
+LAYOUT_ALIASES = {"layout", "레이아웃"}
 
 # "2026-08-20-p5-MLA-USENIX2026.md" -> ("2026-08-20", "p5-MLA-USENIX2026")
 FILENAME_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})-(.+?)(?:\.(?:md|markdown))?$")
@@ -140,6 +142,11 @@ def collect(page: dict, slug_override: str | None = None,
         slug = (slugify(title) or slugify(title, allow_unicode=True)
                 or page["id"].replace("-", "")[:8])
 
+    # `layout` carries "post" once a page is meant to be published; until then
+    # the sync writes it as a draft_ file, which Jekyll ignores.
+    layouts = _select_values(_find_prop(props, LAYOUT_ALIASES))
+    status = _plain(_find_prop(props, STATUS_ALIASES))
+
     banner_url, banner_hosted = _file_url(_find_prop(props, BANNER_ALIASES))
     if not banner_url:
         banner_url, banner_hosted = _cover_url(page)
@@ -153,22 +160,40 @@ def collect(page: dict, slug_override: str | None = None,
         "slug": slug,
         "banner_url": banner_url,
         "banner_hosted": banner_hosted,
+        "status": status,
+        "layouts": layouts,
+        "is_post": "post" in [v.strip().lower() for v in layouts],
+        "notion_id": page.get("id", ""),
+        "last_edited": page.get("last_edited_time", ""),
         "from_filename_prop": bool(match),
     }
 
 
 def render(meta: dict, banner_image: str = "") -> str:
-    """Front matter text. `banner_image` is the already-downloaded local path."""
-    return "\n".join([
+    """Front matter text. `banner_image` is the already-downloaded local path.
+
+    `notion`/`notion_id`/`notion_synced` mark the file as database-owned: the
+    sync looks an existing post up by notion_id rather than by filename, so a
+    renamed page updates in place instead of landing as a second file.
+    """
+    lines = [
         "---",
         "layout: post",
         f'title: "{meta["title"]}"',
         f'subtitle: "{meta["subtitle"]}"',
         f"categories: {_yaml_list(meta['categories'])}",
         f"tags: {_yaml_list(meta['tags'])}",
+    ]
+    if meta.get("status"):
+        lines.append(f'status: "{meta["status"]}"')
+    lines += [
+        "notion: true",
+        f'notion_id: "{meta.get("notion_id", "")}"',
+        f'notion_synced: "{meta.get("last_edited", "")}"',
         "banner:",
         f'  image: "{banner_image}"',
         "  opacity: 0.5",
         '  background: "rgba(0, 0, 0, 0.7)"',
         "---",
-    ]) + "\n"
+    ]
+    return "\n".join(lines) + "\n"

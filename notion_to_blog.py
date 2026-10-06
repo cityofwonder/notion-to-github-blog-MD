@@ -26,6 +26,13 @@ from notion_blog.converter import Converter
 from notion_blog import frontmatter
 
 
+# The sibling blog repo, resolved against THIS FILE rather than the shell's
+# working directory -- running the script from one level up used to point at a
+# path that does not exist.
+DEFAULT_BLOG_DIR = os.path.normpath(os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "cityofwonder.github.io"))
+
+
 def extract_page_id(value: str) -> str:
     """Pull a 32-char hex id out of a Notion URL or id and dash-format it."""
     m = re.search(r"([0-9a-fA-F]{32})", value.replace("-", ""))
@@ -39,9 +46,9 @@ def main() -> None:
     load_dotenv()
     parser = argparse.ArgumentParser(description="Notion -> Jekyll post converter")
     parser.add_argument("page", help="Notion page URL or id")
-    parser.add_argument("--blog-dir", default="../cityofwonder.github.io",
+    parser.add_argument("--blog-dir", default=DEFAULT_BLOG_DIR,
                         help="Blog repo root. Post -> <dir>/_posts, images -> "
-                             "<dir>/assets/images/<date> (default: ../cityofwonder.github.io). "
+                             "<dir>/assets/images/<date> (default: the cityofwonder.github.io next to this script). "
                              "Pass a staging dir like ./output to review before publishing.")
     parser.add_argument("--no-comments", action="store_true", help="Skip Notion comments")
     parser.add_argument("--slug", help="Override the post slug, e.g. a casual English "
