@@ -96,6 +96,11 @@ class Converter:
             return self._with_children(block, pad + text, indent)
 
         if t in HEADING_PREFIX:
+            # A Notion "toggle heading" collapses its content. Render it as a
+            # <details> whose summary is the heading, so it stays collapsible on
+            # the blog instead of flattening into a plain heading + loose body.
+            if data.get("is_toggleable") and block.get("has_children"):
+                return self._toggle_heading(block, t, text)
             return self._with_children(
                 block, f"{HEADING_PREFIX[t]} {text}", indent)
 
@@ -134,7 +139,10 @@ class Converter:
         if t in _MEDIA:
             return self._media(t, data)
 
-        if t in ("column_list", "column", "synced_block"):
+        if t == "column_list":
+            return self._columns(block, indent)
+
+        if t in ("column", "synced_block"):
             return self._render_blocks(self._children(block), indent)
 
         # Unhandled type: surface its plain text rather than dropping silently.
@@ -157,7 +165,22 @@ class Converter:
         children = self._children(block)
         if not children:
             return line
-        return line + "\n" + self._render_blocks(children, indent + 1)
+
+        # Children are rendered flat and then indented by the list's content
+        # offset (2 spaces), so EVERY block type nests correctly -- not just the
+        # few that honour `indent`. A code fence or <details> left at column 0
+        # under a list item is read by kramdown as the item's own text, which
+        # swallowed the fence and mangled everything after it.
+        inner = self._render_blocks(children, 0)
+        indented = "\n".join(
+            ("  " + ln) if ln.strip() else ln for ln in inner.split("\n"))
+
+        # A blank line before block-level children (a code block, a toggle, a
+        # paragraph) is what tells kramdown they belong to the item; nested
+        # lists alone stay tight.
+        only_lists = all(c.get("type") in _LIST_ITEMS for c in children)
+        sep = "\n" if only_lists else "\n\n"
+        return line + sep + indented
 
     def _toggle(self, block: dict, summary: str) -> str:
         # markdown="span" so links inside the summary still resolve; the
@@ -208,17 +231,21 @@ class Converter:
         return (f'<blockquote class="{" ".join(classes)}" markdown="1">\n'
                 f'{body}\n</blockquote>')
 
-    def _image(self, block: dict, data: dict) -> str:
+    def _download_image(self, block: dict, data: dict) -> str | None:
+        """Download an image block's file and return its /assets web path."""
         src = data.get("external", {}).get("url") if data.get("type") == "external" \
             else data.get("file", {}).get("url")
         if not src:
-            return ""
+            return None
         stem = self._asset_stem(block.get("id", ""))
         filename = self.source.download_image(
-            src, self.asset_dir, f"{self.slug}-{stem}"
-        )
-        web_path = f"{self.web_image_base}/{filename}"
+            src, self.asset_dir, f"{self.slug}-{stem}")
+        return f"{self.web_image_base}/{filename}"
 
+    def _image(self, block: dict, data: dict) -> str:
+        web_path = self._download_image(block, data)
+        if not web_path:
+            return ""
         # alt is an HTML attribute, so it takes plain text; the visible
         # caption keeps its formatting (bold, colors, links).
         #
@@ -227,6 +254,74 @@ class Converter:
         # makes kramdown wrap the img in a <p>, which breaks that selector and
         # adds a paragraph margin above the caption.
         return self._figure(web_path, data.get("caption", []))
+
+    def _toggle_heading(self, block: dict, htype: str, summary: str) -> str:
+        """A collapsible Notion heading: heading-styled <summary> + body.
+
+        `toggle-heading` + `toggle-h{1,2,3}` let the blog size the summary like
+        the matching heading while reusing the normal toggle open/close chrome.
+        """
+        level = htype[-1]  # "heading_3" -> "3"
+        inner = self._render_blocks(self._children(block), 0)
+        return (
+            f'<details class="toggle-heading toggle-h{level}">\n'
+            f'<summary markdown="span">{summary}</summary>\n'
+            '<div class="toggle-content" markdown="1">\n\n'
+            f"{inner}\n\n"
+            "</div>\n"
+            "</details>"
+        )
+
+    def _columns(self, block: dict, indent: int) -> str:
+        """Notion column_list. A row of single images becomes an .img-pair.
+
+        Notion's side-by-side image columns are the blog's `.img-pair` block
+        (equal-height, shrink-to-fit). Anything else in the columns -- text,
+        mixed content, more than images -- falls back to stacking, since the
+        blog has no general multi-column layout.
+        """
+        columns = [c for c in self._children(block) if c.get("type") == "column"]
+        per_column = [self._children(c) for c in columns]
+
+        only_images = (
+            len(columns) >= 2
+            and all(len(kids) == 1 and kids[0].get("type") == "image"
+                    for kids in per_column))
+        if only_images:
+            imgs, caption = [], []
+            for kids in per_column:
+                img = kids[0]
+                web_path = self._download_image(img, img["image"])
+                if not web_path:
+                    continue
+                alt = richtext.plain(img["image"].get("caption", [])).strip()
+                imgs.append(
+                    f'      <img src="{web_path}" alt="{html.escape(alt, quote=True)}">')
+                if not caption:
+                    caption = img["image"].get("caption", [])
+            if imgs:
+                rows = "\n".join(imgs)
+                cap_html = ""
+                if caption:
+                    cap_html = (
+                        '\n    <figcaption style="font-size: 0.9em; color: gray;'
+                        ' margin-top: 5px;" markdown="span">'
+                        f'{richtext.render(caption).strip()}</figcaption>')
+                # No markdown="1" on the figure: like the single-image figure,
+                # the raw HTML passes through and only the figcaption opts into
+                # markdown. With markdown="1" the 4-space-indented rows read as a
+                # code block.
+                return (
+                    '<figure class="img-pair">\n'
+                    '    <div class="img-pair-row">\n'
+                    f"{rows}\n"
+                    "    </div>"
+                    f"{cap_html}\n"
+                    "</figure>")
+
+        # Fallback: stack every column's content.
+        return self._render_blocks(
+            [b for kids in per_column for b in kids], indent)
 
     def _asset_stem(self, block_id: str) -> str:
         """Stable, unique filename stem for a block's downloaded asset.

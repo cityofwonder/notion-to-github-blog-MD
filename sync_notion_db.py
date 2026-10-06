@@ -40,7 +40,9 @@ DEFAULT_BLOG_DIR = os.path.normpath(os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "..", "cityofwonder.github.io"))
 
 
-ID_RE = re.compile(r"([0-9a-fA-F]{32})")
+# Anchor on the END of a hex run so a trailing hex letter in the slug
+# ("...kpwnot*e*-<id>") is not glued onto the front, shifting the whole id.
+ID_RE = re.compile(r"([0-9a-fA-F]{32})(?![0-9a-fA-F])")
 FRONT_MATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.S)
 
 # Written back to Notion once a row has a file on disk. Must match an existing
@@ -54,12 +56,12 @@ def dashed(hex32):
 
 
 def extract_db_id(value):
-    """The database id is the first 32-hex run in the URL (before `?v=`)."""
-    head = value.split("?")[0]
-    match = ID_RE.search(head.replace("-", ""))
-    if not match:
+    """The database id is the 32-hex run at the end of the path (before `?v=`)."""
+    head = value.split("?")[0].replace("-", "")
+    matches = ID_RE.findall(head)
+    if not matches:
         raise SystemExit(f"데이터베이스 id 를 찾을 수 없습니다: {value}")
-    return dashed(match.group(1))
+    return dashed(matches[-1])
 
 
 def read_front_matter(path):

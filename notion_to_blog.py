@@ -33,12 +33,19 @@ DEFAULT_BLOG_DIR = os.path.normpath(os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "..", "cityofwonder.github.io"))
 
 
+# The id is the 32 hex chars at the end of the URL path. Anchor on the END of
+# a hex run (?![0-9a-fA-F]): a trailing hex letter in the slug ("kpwnot*e*-...")
+# otherwise glued onto the front and shifted the whole id by one.
+_ID_RE = re.compile(r"([0-9a-fA-F]{32})(?![0-9a-fA-F])")
+
+
 def extract_page_id(value: str) -> str:
     """Pull a 32-char hex id out of a Notion URL or id and dash-format it."""
-    m = re.search(r"([0-9a-fA-F]{32})", value.replace("-", ""))
-    if not m:
+    head = value.split("?")[0].replace("-", "")
+    matches = _ID_RE.findall(head)
+    if not matches:
         raise SystemExit(f"Could not find a Notion page id in: {value}")
-    h = m.group(1).lower()
+    h = matches[-1].lower()  # the last run is the id; earlier ones are slug text
     return f"{h[0:8]}-{h[8:12]}-{h[12:16]}-{h[16:20]}-{h[20:32]}"
 
 
