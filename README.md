@@ -53,6 +53,28 @@ banner:
 | `banner.image` | `banner` 파일 속성. **노션 호스팅 파일이면** `assets/images/<date>/<slug>-banner.<ext>` 로 다운로드, **외부 URL이면 링크 그대로** | 페이지 cover → 빈 값 |
 
 `filename`의 slug는 **그대로** 쓴다 (대소문자 포함). `--slug`를 주면 그게 이긴다.
+`filename` 에 날짜가 없으면(`paper-LLM-Lineage-dir.md`) slug 만 쓰고 날짜는 위 폴백을 따른다.
+
+## Directory (`layout` = directory)
+여러 글을 묶는 인덱스 페이지. 본문은 변환하지 않고, **heading 별로 묶인 페이지
+멘션**만 읽어 블로그의 보드 페이지(`_layouts/directory.html`)로 만든다.
+
+```
+# A. 출력만으로 판별        → 보드의 열(column)
+- @[paper #19] ...         → 카드 (블로그에서 같은 notion_id 의 글로 연결)
+- @[paper #20] ... 메모     → 카드 + 메모
+## 하위 제목               → 열 안의 소제목
+일반 문단                  → 열 설명
+```
+
+- 페이지에서 가장 높은 heading 레벨이 열 경계다. 첫 heading 앞의 문단은 intro.
+- 멘션 외에 link-to-page 블록, 노션 페이지로 가는 인라인 링크도 카드가 된다.
+- front matter 의 `date` 는 directory 의 **마지막 수정 시각**이라 수정할 때마다
+  피드 맨 위로 올라온다. URL 은 `permalink: /directory/<slug>/` 로 고정.
+- 연결은 블로그 빌드 때 `notion_id` 로 찾는다. 링크된 글을 고쳐도 directory 는
+  다시 싱크할 필요가 없고, 아직 발행 안 된 글은 "준비 중" 카드로 보인다.
+- 링크된 글도 각자 `layout: post` 면 일반 피드에 그대로 나온다.
+- `banner` 속성은 `cover:` 로 들어가 피드 카드/보드 헤더 배경에 쓰인다.
 
 ## 댓글의 한계 (Notion API 제약)
 - **미해결(unresolved) 댓글만** 조회됨. resolve된 스레드는 못 가져옴.
@@ -200,5 +222,6 @@ notion_blog/
   converter.py           # 블록 트리 → 마크다운 본문
   richtext.py            # rich_text → 인라인 마크다운/HTML
   frontmatter.py         # 속성 → front matter + 파일명
+  directory.py           # layout=directory 페이지 → 보드 섹션
   mappings.py            # 색상/박스/헤딩 매핑 상수
 ```
