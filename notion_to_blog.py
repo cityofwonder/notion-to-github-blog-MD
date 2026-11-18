@@ -23,7 +23,7 @@ from dotenv import load_dotenv
 
 from notion_blog.client import NotionSource
 from notion_blog.converter import Converter
-from notion_blog import frontmatter
+from notion_blog import directory, frontmatter
 
 
 # The sibling blog repo, resolved against THIS FILE rather than the shell's
@@ -82,16 +82,21 @@ def main() -> None:
     if banner_image and meta["banner_hosted"]:
         banner_file = source.download_image(banner_image, asset_dir, f"{slug}-banner")
         banner_image = f"{web_image_base}/{banner_file}"
-    front = frontmatter.render(meta, banner_image)
 
-    converter = Converter(
-        source=source,
-        asset_dir=asset_dir,
-        web_image_base=web_image_base,
-        slug=slug,
-        with_comments=not args.no_comments,
-    )
-    body = converter.convert(page_id)
+    if meta["is_directory"]:
+        intro, sections = directory.collect(source, page_id)
+        front = frontmatter.render(meta, banner_image, directory=(intro, sections))
+        body = directory.render_body(intro, sections)
+    else:
+        front = frontmatter.render(meta, banner_image)
+        converter = Converter(
+            source=source,
+            asset_dir=asset_dir,
+            web_image_base=web_image_base,
+            slug=slug,
+            with_comments=not args.no_comments,
+        )
+        body = converter.convert(page_id)
 
     posts_dir = os.path.join(blog_dir, "_posts")
     os.makedirs(posts_dir, exist_ok=True)

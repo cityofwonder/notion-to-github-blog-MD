@@ -10,6 +10,11 @@ Rules
 -----
 제목 없음          건너뜀.
 `layout` 에 post   보통의 `_posts/<date>-<slug>.md`.
+`layout` 에 directory
+                   보드 페이지(`layout: directory`). 본문의 페이지 멘션을 heading
+                   별로 묶어 front matter 에 넣고, date 는 마지막 수정 시각이라
+                   수정할 때마다 피드 맨 위로 올라온다. URL 은
+                   /directory/<slug>/ 로 고정.
 `layout` 비어 있음 `_posts/draft_<date>-<slug>.md` — Jekyll 이 무시하는 이름이라
                    발행되지 않는다. 나중에 Notion 에서 layout 을 post 로 바꾸면
                    다음 싱크에서 draft_ 가 떨어진다.
@@ -31,7 +36,7 @@ from dotenv import load_dotenv
 
 from notion_blog.client import NotionSource
 from notion_blog.converter import Converter
-from notion_blog import frontmatter
+from notion_blog import directory, frontmatter
 
 # The sibling blog repo, resolved against THIS FILE rather than the shell's
 # working directory -- running the script from one level up used to point at a
@@ -43,7 +48,6 @@ DEFAULT_BLOG_DIR = os.path.normpath(os.path.join(
 # Anchor on the END of a hex run so a trailing hex letter in the slug
 # ("...kpwnot*e*-<id>") is not glued onto the front, shifting the whole id.
 ID_RE = re.compile(r"([0-9a-fA-F]{32})(?![0-9a-fA-F])")
-FRONT_MATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.S)
 
 # Written back to Notion once a row has a file on disk. Must match an existing
 # option on the 상태 select exactly, or Notion creates a duplicate option.
@@ -65,21 +69,27 @@ def extract_db_id(value):
 
 
 def read_front_matter(path):
-    """`notion_id` / `notion_synced` out of a post, without a YAML dependency."""
+    """`notion_id` / `notion_synced` out of a post, without a YAML dependency.
+
+    Reads up to the closing `---` rather than a fixed-size head: a directory
+    carries its whole board in front matter, and a 4 KB head used to cut it
+    off before the fence -- the post then had no notion_id, so a renamed
+    directory was written again as a second file instead of being moved.
+    """
+    fields = {}
     try:
         with open(path, encoding="utf-8") as f:
-            head = f.read(4096)
+            if f.readline().strip() != "---":
+                return {}
+            for line in f:
+                if line.strip() == "---":
+                    return fields
+                hit = re.match(r"^(notion_id|notion_synced|status)\s*:\s*(.*)$", line)
+                if hit:
+                    fields[hit.group(1)] = hit.group(2).strip().strip('"').strip("'")
     except OSError:
         return {}
-    match = FRONT_MATTER_RE.match(head)
-    if not match:
-        return {}
-    fields = {}
-    for line in match.group(1).splitlines():
-        hit = re.match(r"^(notion_id|notion_synced|status)\s*:\s*(.*)$", line)
-        if hit:
-            fields[hit.group(1)] = hit.group(2).strip().strip('"').strip("'")
-    return fields
+    return {}  # no closing fence: not front matter
 
 
 def index_existing(posts_dir):
@@ -164,7 +174,7 @@ def plan_row(page, index, posts_dir):
     if not meta["title"].strip():
         return {"action": "skip-untitled", "meta": meta, "page": page}
 
-    prefix = "" if meta["is_post"] else "draft_"
+    prefix = "" if meta["published"] else "draft_"
     filename = f"{prefix}{meta['date']}-{meta['slug']}.md"
     target = os.path.join(posts_dir, filename)
 
@@ -174,6 +184,13 @@ def plan_row(page, index, posts_dir):
 
     synced = read_front_matter(existing).get("notion_synced", "")
     renamed = os.path.abspath(existing) != os.path.abspath(target)
+    # A directory shows its linked posts' titles, and renaming a linked page
+    # does not touch the directory's own last_edited_time -- so it is always
+    # re-read (one block listing, no images). Its `date` stays the directory's
+    # own last edit, so this never floats it up the feed.
+    if meta["is_directory"] and not renamed:
+        return {"action": "update", "meta": meta, "target": target,
+                "existing": existing, "page": page}
     if synced and synced == meta["last_edited"] and not renamed:
         return {"action": "skip-unchanged", "meta": meta, "target": existing,
                 "page": page}
@@ -241,14 +258,20 @@ def write_post(source, meta, target, blog_dir, with_comments):
         banner_file = source.download_image(banner_image, asset_dir, f"{slug}-banner")
         banner_image = f"{web_image_base}/{banner_file}"
 
-    converter = Converter(source=source, asset_dir=asset_dir,
-                          web_image_base=web_image_base, slug=slug,
-                          with_comments=with_comments)
-    body = converter.convert(meta["notion_id"])
+    if meta["is_directory"]:
+        intro, sections = directory.collect(source, meta["notion_id"])
+        front = frontmatter.render(meta, banner_image, directory=(intro, sections))
+        body = directory.render_body(intro, sections)
+    else:
+        converter = Converter(source=source, asset_dir=asset_dir,
+                              web_image_base=web_image_base, slug=slug,
+                              with_comments=with_comments)
+        front = frontmatter.render(meta, banner_image)
+        body = converter.convert(meta["notion_id"])
 
     os.makedirs(os.path.dirname(target), exist_ok=True)
     with open(target, "w", encoding="utf-8") as f:
-        f.write(frontmatter.render(meta, banner_image) + "\n" + body)
+        f.write(front + "\n" + body)
     return asset_dir
 
 
@@ -308,7 +331,9 @@ def main():
             note = f"  ← {os.path.basename(plan['existing'])}"
         if plan["action"] == "skip-untitled":
             name = "-"
-        draft = "" if meta.get("is_post") else "  (draft_)"
+        draft = "" if meta.get("published") else "  (draft_)"
+        if meta.get("is_directory"):
+            draft += "  (directory)"
         print(f"  {label[plan['action']]:<10} {title:<44} {name}{draft}{note}")
 
     # Rows the database no longer returns (deleted, or moved to the trash).
